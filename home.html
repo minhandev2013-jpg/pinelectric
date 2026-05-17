@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Racing Game-PinDevStudio</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #87CEEB; /* Bầu trời xanh ban ngày */
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        }
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #2c3e50;
+            background: rgba(255, 255, 255, 0.85);
+            padding: 15px 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            backdrop-filter: blur(5px);
+            pointer-events: none;
+        }
+        h1 { 
+            margin: 0; 
+            font-size: 22px; 
+            color: #1b4f72;
+            letter-spacing: 1px;
+        }
+        p { 
+            margin: 8px 0 0 0; 
+            font-size: 14px; 
+            color: #566573; 
+            font-weight: 500;
+        }
+        #speedometer {
+            position: absolute;
+            bottom: 30px;
+            right: 30px;
+            background: rgba(255, 255, 255, 0.85);
+            color: #e74c3c;
+            padding: 10px 25px;
+            border-radius: 30px;
+            font-size: 28px;
+            font-weight: bold;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            backdrop-filter: blur(5px);
+            border: 2px solid #e74c3c;
+        }
+    </style>
+    <!-- Nhúng Three.js -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+    <div id="ui">
+        <h1>NATURE SUNNY RACER</h1>
+        <p>Điều khiển: Phím Mũi Tên hoặc W, A, S, D</p>
+    </div>
+    <div id="speedometer"><span id="speed-val">0</span> km/h</div>
+
+    <script>
+        // --- 1. KHỞI TẠO SCENE, CAMERA, RENDERER ---
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xa0d8ef); // Màu bầu trời sáng
+        scene.fog = new THREE.FogExp2(0xa0d8ef, 0.008);
+
+        const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        document.body.appendChild(renderer.domElement);
+
+        // --- 2. ÁNH SÁNG BAN NGÀY (LIGHTS) ---
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6); // Ánh sáng môi trường sáng hơn
+        scene.add(ambientLight);
+
+        const sunLight = new THREE.DirectionalLight(0xfffaed, 1.2); // Ánh sáng mặt trời
+        sunLight.position.set(40, 60, 20);
+        sunLight.castShadow = true;
+        sunLight.shadow.mapSize.width = 2048;
+        sunLight.shadow.mapSize.height = 2048;
+        sunLight.shadow.camera.near = 0.5;
+        sunLight.shadow.camera.far = 200;
+        const d = 100;
+        sunLight.shadow.camera.left = -d;
+        sunLight.shadow.camera.right = d;
+        sunLight.shadow.camera.top = d;
+        sunLight.shadow.camera.bottom = -d;
+        scene.add(sunLight);
+
+        // --- 3. TẠO MÔI TRƯỜNG (ENVIRONMENT) ---
+        // Mặt đất cỏ xanh
+        const floorGeo = new THREE.PlaneGeometry(2000, 2000);
+        const floorMat = new THREE.MeshStandardMaterial({ 
+            color: 0x55aa44, // Màu cỏ xanh tươi
+            roughness: 0.9, 
+            metalness: 0.1 
+        });
+        const floor = new THREE.Mesh(floorGeo, floorMat);
+        floor.rotation.x = -Math.PI / 2;
+        floor.receiveShadow = true;
+        scene.add(floor);
+
+        // Grid nhẹ để dễ định vị khoảng cách
+        const gridHelper = new THREE.GridHelper(1000, 200, 0x448833, 0x448833);
+        gridHelper.position.y = 0.01;
+        scene.add(gridHelper);
+
+        // Hàm tạo Cây 3D ngẫu nhiên
+        function createTree(x, z) {
+            const tree = new THREE.Group();
+            
+            // Thân cây
+            const trunkGeo = new THREE.CylinderGeometry(0.2, 0.4, 2, 8);
+            const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5a3d28, roughness: 0.9 });
+            const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+            trunk.position.y = 1;
+            trunk.castShadow = true;
+            tree.add(trunk);
+
+            // Tán lá cây
+            const leavesGeo = new THREE.ConeGeometry(1.2, 3, 8);
+            const leavesMat = new THREE.MeshStandardMaterial({ color: 0x2e7d32, roughness: 0.6 });
+            const leaves = new THREE.Mesh(leavesGeo, leavesMat);
+            leaves.position.y = 3;
+            leaves.castShadow = true;
+            tree.add(leaves);
+
+            tree.position.set(x, 0, z);
+            scene.add(tree);
+        }
+
+        // Rải cây ngẫu nhiên bao quanh khu vực xuất phát
+        for (let i = 0; i < 150; i++) {
+            let x = (Math.random() - 0.5) * 400;
+            let z = (Math.random() - 0.5) * 400;
+            // Tránh khu vực tâm (vị trí xe xuất phát)
+            if (Math.abs(x) > 10 || Math.abs(z) > 10) {
+                createTree(x, z);
+            }
+        }
+
+        // Hàm tạo Đèn đường
+        function createStreetLight(x, z) {
+            const lightGroup = new THREE.Group();
+
+            // Cột đèn
+            const postGeo = new THREE.CylinderGeometry(0.1, 0.1, 5, 8);
+            const postMat = new THREE.MeshStandardMaterial({ color: 0x7f8c8d });
+            const post = new THREE.Mesh(postGeo, postMat);
+            post.position.y = 2.5;
+            post.castShadow = true;
+            lightGroup.add(post);
+
+            // Thanh ngang giữ đèn
+            const armGeo = new THREE.BoxGeometry(1, 0.1, 0.1);
+            const arm = new THREE.Mesh(armGeo, postMat);
+            arm.position.set(0.4, 5, 0);
+            lightGroup.add(arm);
+
+            // Bóng đèn (Vật thể phát sáng)
+            const bulbGeo = new THREE.SphereGeometry(0.2, 16, 16);
+            const bulbMat = new THREE.MeshBasicMaterial({ color: 0xfff9e6 });
+            const bulb = new THREE.Mesh(bulbGeo, bulbMat);
+            bulb.position.set(0.9, 4.9, 0);
+            lightGroup.add(bulb);
+
+            // Ánh sáng từ đèn đường chiếu xuống
+            const spotLight = new THREE.SpotLight(0xfff9e6, 2, 15, Math.PI / 4, 0.5, 1);
+            spotLight.position.set(0.9, 4.9, 0);
+            spotLight.target.position.set(0.9, 0, 0);
+            lightGroup.add(spotLight);
+            lightGroup.add(spotLight.target);
+
+            lightGroup.position.set(x, 0, z);
+            scene.add(lightGroup);
+        }
+
+        // Đặt một số cột đèn dọc trục đường tưởng tượng
+        for(let z = -150; z <= 150; z += 30) {
+            createStreetLight(5, z);
+            createStreetLight(-5, z);
+        }
+
+        // --- 4. TẠO XE 3D (CAR MODEL) ---
+        const car = new THREE.Group();
+
+        // Thân xe (Màu đỏ thể thao để nổi bật trên nền cỏ)
+        const bodyGeo = new THREE.BoxGeometry(1.6, 0.6, 3);
+        const bodyMat = new THREE.MeshStandardMaterial({ color: 0xe74c3c, roughness: 0.2, metalness: 0.5 });
+        const carBody = new THREE.Mesh(bodyGeo, bodyMat);
+        carBody.position.y = 0.5;
+        carBody.castShadow = true;
+        car.add(carBody);
+
+        // Buồng lái (Kính chắn gió)
+        const cabinGeo = new THREE.BoxGeometry(1.2, 0.4, 1.4);
+        const cabinMat = new THREE.MeshStandardMaterial({ color: 0x2c3e50, roughness: 0.1, metalness: 0.8 });
+        const cabin = new THREE.Mesh(cabinGeo, cabinMat);
+        cabin.position.set(0, 0.9, -0.2);
+        car.add(cabin);
+
+        // Bánh xe
+        const wheelGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.4, 32);
+        const wheelMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.8 });
+        
+        const wheelPositions = [
+            [-0.9, 0.4, 1],  // Trước trái
+            [0.9, 0.4, 1],   // Trước phải
+            [-0.9, 0.4, -1], // Sau trái
+            [0.9, 0.4, -1]   // Sau phải
+        ];
+
+        const wheels = [];
+        wheelPositions.forEach(pos => {
+            const wheel = new THREE.Mesh(wheelGeo, wheelMat);
+            wheel.rotation.z = Math.PI / 2;
+            wheel.position.set(pos[0], pos[1], pos[2]);
+            wheel.castShadow = true;
+            car.add(wheel);
+            wheels.push(wheel);
+        });
+
+        scene.add(car);
+
+        // --- 5. HỆ THỐNG KHÓI XẢ (GRAY EXHAUST SMOKE) ---
+        const smokeParticles = [];
+        const smokeGeo = new THREE.SphereGeometry(0.1, 8, 8);
+        const smokeMat = new THREE.MeshBasicMaterial({
+            color: 0xdddddd, // Khói trắng xám ban ngày
+            transparent: true,
+            opacity: 0.4
+        });
+
+        function createSmoke() {
+            if (Math.abs(speed) > 0.05) {
+                const smoke = new THREE.Mesh(smokeGeo, smokeMat.clone());
+                const localExhaust = new THREE.Vector3(0, 0.3, -1.5);
+                const worldExhaust = localExhaust.applyMatrix4(car.matrixWorld);
+                
+                smoke.position.copy(worldExhaust);
+                smoke.size = 0.1;
+                scene.add(smoke);
+                smokeParticles.push(smoke);
+            }
+        }
+
+        function updateSmoke() {
+            for (let i = smokeParticles.length - 1; i >= 0; i--) {
+                const p = smokeParticles[i];
+                p.position.y += 0.015;
+                p.size += 0.008;
+                p.scale.setScalar(p.size * 10);
+                p.material.opacity -= 0.015;
+
+                if (p.material.opacity <= 0) {
+                    scene.remove(p);
+                    p.material.dispose();
+                    smokeParticles.splice(i, 1);
+                }
+            }
+        }
+
+        // --- 6. XỬ LÝ ĐIỀU KHIỂN (CONTROLS) ---
+        const keys = { forward: false, backward: false, left: false, right: false };
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') keys.forward = true;
+            if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') keys.backward = true;
+            if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') keys.left = true;
+            if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.right = true;
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') keys.forward = false;
+            if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') keys.backward = false;
+            if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') keys.left = false;
+            if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.right = false;
+        });
+
+        // --- 7. VẬT LÝ XE ---
+        let speed = 0;
+        const maxSpeed = 1.2;
+        const acceleration = 0.03;
+        const friction = 0.015;
+
+        function updateCar() {
+            if (keys.forward) speed += acceleration;
+            if (keys.backward) speed -= acceleration;
+
+            if (!keys.forward && !keys.backward) {
+                if (speed > 0) speed -= friction;
+                if (speed < 0) speed += friction;
+                if (Math.abs(speed) < friction) speed = 0;
+            }
+
+            speed = Math.max(-maxSpeed/2, Math.min(maxSpeed, speed));
+
+            if (Math.abs(speed) > 0.01) {
+                const directionFactor = speed > 0 ? 1 : -1;
+                if (keys.left) car.rotation.y += 0.04 * directionFactor;
+                if (keys.right) car.rotation.y -= 0.04 * directionFactor;
+            }
+
+            car.translateZ(speed);
+
+            wheels.forEach(wheel => {
+                wheel.rotation.x += speed * 2;
+            });
+
+            document.getElementById('speed-val').innerText = Math.round(Math.abs(speed) * 150);
+        }
+
+        // --- 8. LÀM MƯỢT CAMERA THEO XE ---
+        function updateCamera() {
+            const offset = new THREE.Vector3(0, 2.5, -6); 
+            offset.applyMatrix4(car.matrixWorld);
+
+            camera.position.lerp(offset, 0.1);
+            camera.lookAt(car.position.clone().add(new THREE.Vector3(0, 0.8, 0)));
+        }
+
+        // --- 9. GAME LOOP ---
+        function animate() {
+            requestAnimationFrame(animate);
+
+            updateCar();
+            createSmoke();
+            updateSmoke();
+            updateCamera();
+
+            renderer.render(scene, camera);
+        }
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        animate();
+    </script>
+</body>
+</html>
